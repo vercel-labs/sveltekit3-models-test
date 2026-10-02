@@ -1,10 +1,12 @@
 <script lang="ts">
 	import '@fontsource-variable/geist-mono';
 	import '../app.css';
+	import { onMount } from 'svelte';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { getModel, getModels, getProviders } from './models.remote';
 	import Beacon from './Beacon.svelte';
+	import { fastClick } from './fast-click';
 	import { highlight } from './highlight';
 	import Tour from './Tour.svelte';
 	import { next } from './tour-steps.svelte';
@@ -33,6 +35,18 @@
 	}
 
 	const open = (model: string | null) => goto(withParams({ model }), { reset: false });
+
+	onMount(fastClick);
+
+	// Hovering a row fetches its details, so opening it is instant. A query is cached
+	// only while something holds it, so keep the handles around.
+	const warm = new Map<string, ReturnType<typeof getModel>>();
+	function prefetch(id: string) {
+		if (warm.has(id)) return;
+		const model = getModel(id);
+		warm.set(id, model);
+		model.catch(() => warm.delete(id)); // let a failed one retry
+	}
 
 	function filter(changes: Record<string, string>, shallow = false) {
 		pages = 1;
@@ -125,7 +139,12 @@
 					<!-- page 0 here is the same call as `first` above, so it's fetched once -->
 					{#each (await getModels({ q, provider, page: i })).models as m (m.id)}
 						<li>
-							<button class:active={m.id === selected} onclick={() => open(m.id)}>
+							<button
+								class:active={m.id === selected}
+								onpointerenter={() => prefetch(m.id)}
+								onfocus={() => prefetch(m.id)}
+								onclick={() => open(m.id)}
+							>
 								<span class="name">{m.name}<small>{m.id}</small></span>
 								<span class="ctx" title="context window">{k(m.context_window)}</span>
 								<span title="input / output per 1M tokens">
