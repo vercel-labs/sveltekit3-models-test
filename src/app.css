@@ -1,0 +1,80 @@
+/* fx.sh look: monochrome, Geist Mono, hairlines. SvelteKit red is the only color. */
+:root {
+	--bg: #fff;
+	--fg: #171717;
+	--dim: #767676;
+	--card: #fafafa;
+	--line: #e5e5e5;
+	--red: #ff3e00;
+	--red-soft: #ff3e0014;
+	--curve: cubic-bezier(0.4, 0, 0.2, 1);
+	--ease: 0.15s var(--curve); /* for `transition: <prop> var(--ease)`; animations use --curve */
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #000;
+		--fg: #ededed;
+		--dim: #8a8a8a;
+		--card: #0a0a0a;
+		--line: #262626;
+		--red-soft: #ff3e001f;
+	}
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+	font: 13px/1.6 'Geist Mono Variable', ui-monospace, monospace;
+	caret-color: var(--red);
+	-webkit-font-smoothing: antialiased;
+}
+
+::selection {
+	background: var(--red);
+	color: #fff;
+}
+
+:focus-visible {
+	outline: 1px solid var(--red);
+	outline-offset: 2px;
+}
+
+button,
+input,
+select {
+	font: inherit;
+	color: inherit;
+}
+
+/* code blocks rendered by highlight.ts: one block-level span per line */
+pre.code .line {
+	display: block;
+	margin-inline: -0.75rem;
+	padding-inline: 0.75rem;
+}
+pre.code .important {
+	background: var(--red-soft);
+}
+pre.code .keyword {
+	font-weight: 600;
+}
+pre.code .string {
+	color: var(--dim);
+}
+pre.code .comment {
+	color: var(--dim);
+	font-style: italic;
+}
+
+a {
+	color: inherit;
+	text-decoration-color: var(--red);
+	text-underline-offset: 3px;
+}

@@ -1,209 +1,454 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import '@fontsource-variable/geist-mono';
+	import '../app.css';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { getModel, getModels, getProviders } from './models.remote';
+	import Beacon from './Beacon.svelte';
+	import { highlight } from './highlight';
+	import Tour from './Tour.svelte';
+	import { next } from './tour-steps.svelte';
 
-	// URL is the source of truth, so every view is a shareable link
-	let q = $derived(page.url.searchParams.get('q') ?? '');
+	// Provider and selected model live in the URL, so every view is a shareable link.
 	let provider = $derived(page.url.searchParams.get('provider') ?? '');
 	let selected = $derived(page.url.searchParams.get('model'));
 
-	function set(key: string, value: string | null) {
-		const url = new URL(page.url.href);
-		if (value) url.searchParams.set(key, value);
-		else url.searchParams.delete(key);
-		goto(url, { replace: key === 'q', reset: false });
+	// The search box is deliberately uncontrolled: Async Svelte holds DOM updates until
+	// pending `await`s settle, so a reactive `value={q}` would land late and eat keystrokes.
+	const initialQ = page.url.searchParams.get('q') ?? '';
+	let q = $state(initialQ);
+	let input: HTMLInputElement;
+
+	// Results arrive a page at a time; each page is its own cached query.
+	let pages = $state(1);
+
+	/** The current address with some params changed (falsy values are removed). */
+	function withParams(changes: Record<string, string | null>) {
+		const url = new URL(location.href); // not page.url — shallow updates skip it
+		for (const [k, v] of Object.entries(changes)) {
+			if (v) url.searchParams.set(k, v);
+			else url.searchParams.delete(k);
+		}
+		return url;
 	}
+
+	const open = (model: string | null) => goto(withParams({ model }), { reset: false });
+
+	function filter(changes: Record<string, string>, shallow = false) {
+		pages = 1;
+		// shallow = just rewrite the address bar, no navigation
+		goto(withParams(changes), { reset: false, replace: shallow, shallow });
+	}
+
+	// Back/forward restores whatever was typed
+	afterNavigate(({ type }) => {
+		if (type === 'popstate') input.value = q = new URL(location.href).searchParams.get('q') ?? '';
+	});
 
 	let copied = $state(false);
-	async function share() {
-		await navigator.clipboard.writeText(page.url.href);
+	async function copyLink() {
+		await navigator.clipboard.writeText(location.href);
 		copied = true;
-		setTimeout(() => (copied = false), 1500);
+		setTimeout(() => (copied = false), 1200);
 	}
 
-	const perMillion = (price?: string) =>
-		price ? `$${(Number(price) * 1e6).toFixed(2)}` : '—';
-	const tokens = (n?: number) => (n ? `${Math.round(n / 1000)}k` : '—');
+	const usd = (perToken?: string) => (perToken ? `$${+(+perToken * 1e6).toFixed(2)}` : '—');
+	const k = (n?: number) => (!n ? '—' : n < 1e6 ? `${Math.round(n / 1e3)}k` : `${+(n / 1e6).toFixed(2)}M`);
 </script>
 
 <svelte:head>
-	<title>AI Gateway models</title>
+	<title>AI Gateway models · SvelteKit 3</title>
 </svelte:head>
 
-<h1>Vercel AI Gateway models</h1>
+<!-- Esc closes the details, unless it's closing a tour card first -->
+<svelte:window
+	onkeydown={(e) =>
+		e.key === 'Escape' && selected && !document.querySelector(':popover-open') && open(null)}
+/>
 
-<div class="controls">
-	<input
+<header>
+	<h1>
+		ai gateway models<Beacon id="server" />
+		<button class="tour" onclick={() => next()}>how it works →</button>
+	</h1>
+	<p>
+		Every model on <a href="https://vercel.com/ai-gateway">Vercel AI Gateway</a>, served by
+		SvelteKit 3 <a href="https://svelte.dev/docs/kit/remote-functions">remote functions</a> and
+		<a href="https://svelte.dev/docs/svelte/await-expressions">async Svelte</a>.
+	</p>
+</header>
+
+<div class="filters" role="search">
+	<span class="field">
+		<input
+		bind:this={input}
+		value={initialQ}
+		oninput={(e) => filter({ q: (q = e.currentTarget.value) }, true)}
 		type="search"
-		placeholder="Search models or tags…"
-		value={q}
-		oninput={(e) => set('q', e.currentTarget.value)}
-	/>
-
-	<!-- `await` directly in markup — Async Svelte -->
-	<select value={provider} onchange={(e) => set('provider', e.currentTarget.value)}>
-		<option value="">All providers</option>
+		placeholder="search models, ids, tags…"
+		aria-label="Search"
+		/>
+		<Beacon id="search" corner />
+	</span>
+	<span class="field">
+	<select value={provider} onchange={(e) => filter({ provider: e.currentTarget.value })}>
+		<option value="">all providers</option>
+		<!-- `await` right in markup: resolved during SSR, so no loading flash -->
 		{#each await getProviders() as p (p.id)}
-			<option value={p.id}>{p.id} ({p.count})</option>
+			<option value={p.id}>{p.id} · {p.count}</option>
 		{/each}
 	</select>
-
-	<button onclick={share}>{copied ? 'Copied!' : 'Copy share link'}</button>
+		<Beacon id="providers" corner />
+	</span>
 </div>
 
 <svelte:boundary>
+	{@const first = await getModels({ q, provider, page: 0 })}
+
 	<div class="layout">
 		<section>
-			{#if true}
-				<!-- query results are cached per argument, so this is fetched once -->
-				{@const models = await getModels({ q, provider })}
-				<p class="count">
-					{models.length} models
-					{#if $effect.pending()}<span class="pending">updating…</span>{/if}
-				</p>
-				<table>
-					<thead>
-						<tr><th>Model</th><th>Context</th><th>In / 1M</th><th>Out / 1M</th></tr>
-					</thead>
-					<tbody>
-						{#each models as m (m.id)}
-							<tr class:active={m.id === selected} onclick={() => set('model', m.id)}>
-								<td><strong>{m.name}</strong><br /><code>{m.id}</code></td>
-								<td>{tokens(m.context_window)}</td>
-								<td>{perMillion(m.pricing?.input)}</td>
-								<td>{perMillion(m.pricing?.output)}</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
+			<p class="meta">
+				{first.total} models<Beacon id="list" />
+			</p>
+
+			{#if first.total === 0}
+				<p class="empty">nothing matches “{q}”</p>
+			{/if}
+
+			<!-- old rows stay on screen while new ones load; a red bar sweeping the top edge is the only spinner -->
+			<ol class:loading={$effect.pending()}>
+				{#each { length: pages }, i}
+					<!-- page 0 here is the same call as `first` above, so it's fetched once -->
+					{#each (await getModels({ q, provider, page: i })).models as m (m.id)}
+						<li>
+							<button class:active={m.id === selected} onclick={() => open(m.id)}>
+								<span class="name">{m.name}<small>{m.id}</small></span>
+								<span class="ctx" title="context window">{k(m.context_window)}</span>
+								<span title="input / output per 1M tokens">
+									{usd(m.pricing?.input)} / {usd(m.pricing?.output)}
+								</span>
+							</button>
+						</li>
+					{/each}
+				{/each}
+			</ol>
+
+			{#if (await getModels({ q, provider, page: pages - 1 })).more}
+				<button class="more" onclick={() => pages++}>show more ↓</button><Beacon id="more" />
 			{/if}
 		</section>
 
 		{#if selected}
 			{@const m = await getModel(selected)}
 			<aside>
-				<button class="close" onclick={() => set('model', null)}>×</button>
-					<h2>{m.name}</h2>
-					<code>{m.id}</code>
-					<p>{m.description || 'No description.'}</p>
-					<dl>
-						<dt>Type</dt><dd>{m.type}</dd>
-						<dt>Context</dt><dd>{m.context_window?.toLocaleString() ?? '—'}</dd>
-						<dt>Max output</dt><dd>{m.max_tokens?.toLocaleString() ?? '—'}</dd>
-					</dl>
-					{#if m.tags?.length}
-						<p>{#each m.tags as t}<span class="tag">{t}</span>{/each}</p>
-					{/if}
-					<pre>{`import { generateText } from 'ai';
+				<nav>
+					<button onclick={copyLink}>{copied ? 'copied ✓' : 'copy link'}</button>
+					<button onclick={() => open(null)} aria-label="Close">×</button>
+				</nav>
+				<h2>{m.name}<Beacon id="detail" /></h2>
+				<code>{m.id}</code>
+				<p>{m.description || 'No description yet.'}</p>
+				<dl>
+					<dt>context</dt><dd>{m.context_window?.toLocaleString() ?? '—'}</dd>
+					<dt>max output</dt><dd>{m.max_tokens?.toLocaleString() ?? '—'}</dd>
+					<dt>per 1M in</dt><dd>{usd(m.pricing?.input)}</dd>
+					<dt>per 1M out</dt><dd>{usd(m.pricing?.output)}</dd>
+				</dl>
+				{#if m.tags?.length}
+					<ul class="tags">{#each m.tags as tag}<li>{tag}</li>{/each}</ul>
+				{/if}
+				<pre class="code">{@html highlight(`import { generateText } from 'ai';
 
 await generateText({
-  model: '${m.id}',
+!  model: '${m.id}',
   prompt: 'Hello!'
-});`}</pre>
+});`)}</pre>
 			</aside>
 		{/if}
 	</div>
 
-	{#snippet failed(error, reset)}
-		<p>Failed to load models: {(error as Error).message}</p>
-		<button onclick={reset}>Retry</button>
+	{#snippet failed(err, retry)}
+		<p class="empty">couldn’t load models: {(err as Error).message}</p>
+		<button class="more" onclick={retry}>try again</button>
 	{/snippet}
 </svelte:boundary>
 
+<Tour />
+
 <style>
-	.controls {
-		display: flex;
-		gap: 0.5rem;
-		margin-bottom: 1rem;
-	}
-	input {
-		flex: 1;
-	}
-	input,
-	select,
-	button {
-		padding: 0.5rem;
-		font: inherit;
-	}
+	header,
+	.filters,
 	.layout {
-		display: grid;
-		grid-template-columns: 1fr auto;
-		gap: 1rem;
-		align-items: start;
+		max-width: 64rem;
+		margin: 0 auto;
+		padding: 0 1.5rem;
 	}
-	table {
-		width: 100%;
-		border-collapse: collapse;
-		background: white;
+
+	header {
+		padding-top: 1.75rem;
 	}
-	th,
-	td {
-		text-align: left;
-		padding: 0.4rem 0.6rem;
-		border-bottom: 1px solid #eee;
-		font-size: 0.85rem;
+	h1 {
+		display: flex;
+		align-items: center;
+		font-size: 1.25rem;
+		font-weight: 600;
+		margin: 0;
 	}
-	tbody tr {
-		cursor: pointer;
-	}
-	tbody tr:hover,
-	tr.active {
-		background: #fff4ee;
-	}
-	code {
-		font-size: 0.75rem;
-		color: #666;
-	}
-	.count {
-		margin: 0 0 0.5rem;
-		color: #555;
-	}
-	.pending {
-		color: var(--color-theme-1);
-		margin-left: 0.5rem;
-	}
-	aside {
-		position: sticky;
-		top: 1rem;
-		width: 20rem;
-		background: white;
-		padding: 1rem;
-		border-radius: 8px;
-		box-shadow: 0 2px 12px rgb(0 0 0 / 0.08);
-	}
-	aside h2 {
-		margin: 0 0 0.25rem;
-		text-align: left;
-	}
-	.close {
-		float: right;
+	.tour {
+		margin-left: auto;
+		padding: 0;
 		background: none;
 		border: 0;
-		font-size: 1.25rem;
+		color: var(--dim);
+		font-size: 13px;
+		font-weight: 400;
 		cursor: pointer;
+		transition: color var(--ease);
 	}
+	.tour:hover {
+		color: var(--red);
+	}
+	header p {
+		color: var(--dim);
+		margin-bottom: 0;
+		text-wrap: balance; /* one line on desktop, even lines when it has to wrap */
+	}
+
+	.filters {
+		display: flex;
+		gap: 0.5rem;
+		margin-block: 1.25rem 0.75rem;
+	}
+	input,
+	select {
+		height: 2.5rem;
+		padding: 0 0.75rem;
+		background: var(--card);
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		transition: border-color var(--ease);
+	}
+	.field {
+		position: relative;
+		display: flex;
+	}
+	.field {
+		min-width: 0;
+	}
+	.field:first-child {
+		flex: 1;
+	}
+	.field:last-child {
+		max-width: 40%; /* long provider names shouldn't crowd out search */
+	}
+	input,
+	select {
+		flex: 1;
+		min-width: 0;
+	}
+	input:focus,
+	select:focus {
+		border-color: var(--red);
+		outline: none;
+	}
+
+	.layout {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 2rem;
+		padding-bottom: 4rem;
+	}
+	.layout:has(aside) {
+		grid-template-columns: minmax(0, 1fr) 22rem;
+	}
+
+
+	.meta,
+	.empty {
+		color: var(--dim);
+	}
+
+	ol {
+		position: relative;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		border-top: 1px solid var(--line);
+	}
+	ol.loading::before {
+		content: '';
+		position: absolute;
+		top: -1px;
+		height: 1px;
+		background: var(--red);
+		animation: sweep 1s var(--curve) infinite;
+	}
+	@keyframes sweep {
+		from {
+			left: 0;
+			right: 100%;
+		}
+		50% {
+			left: 0;
+			right: 0;
+		}
+		to {
+			left: 100%;
+			right: 0;
+		}
+	}
+	li button {
+		display: grid;
+		grid-template-columns: 1fr 4rem 9rem;
+		gap: 1rem;
+		align-items: center;
+		width: 100%;
+		padding: 0.6rem 0.75rem;
+		background: none;
+		border: 0;
+		border-bottom: 1px solid var(--line);
+		text-align: left;
+		cursor: pointer;
+		transition: background var(--ease);
+	}
+	li button > span:not(.name) {
+		color: var(--dim);
+		text-align: right;
+	}
+	li button:hover {
+		background: var(--card);
+	}
+	li button.active {
+		background: var(--red-soft);
+	}
+	.name {
+		overflow-wrap: anywhere;
+	}
+	.name small {
+		display: block;
+		color: var(--dim);
+	}
+	.active .name small {
+		color: var(--red);
+	}
+
+	.more,
+	aside nav button {
+		margin-top: 1rem;
+		padding: 0.4rem 0.9rem;
+		background: none;
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		cursor: pointer;
+		transition:
+			border-color var(--ease),
+			color var(--ease);
+	}
+	.more:hover,
+	aside nav button:hover {
+		border-color: var(--red);
+		color: var(--red);
+	}
+
+	aside {
+		position: sticky;
+		top: 1.5rem;
+		align-self: start;
+		padding: 1.25rem;
+		background: var(--card);
+		border: 1px solid var(--line);
+		border-radius: 8px;
+	}
+	aside nav {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.5rem;
+	}
+	aside nav button {
+		margin: 0;
+		padding: 0.15rem 0.6rem;
+	}
+	h2 {
+		font-size: 1rem;
+		margin: 0.75rem 0 0;
+	}
+	aside > code {
+		color: var(--red);
+	}
+	aside p {
+		color: var(--dim);
+	}
+
 	dl {
 		display: grid;
 		grid-template-columns: auto 1fr;
-		gap: 0.25rem 1rem;
-		font-size: 0.85rem;
+		gap: 0.2rem 1rem;
+	}
+	dt {
+		color: var(--dim);
 	}
 	dd {
 		margin: 0;
+		text-align: right;
 	}
-	.tag {
-		display: inline-block;
-		background: #eee;
+
+	.tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		padding: 0;
+		list-style: none;
+	}
+	.tags li {
+		padding: 0 0.45rem;
+		border: 1px solid var(--line);
 		border-radius: 4px;
-		padding: 0 0.4rem;
-		margin: 0 0.25rem 0.25rem 0;
-		font-size: 0.75rem;
+		color: var(--dim);
+		font-size: 11px;
 	}
+
 	pre {
-		font-size: 0.75rem;
-		background: #f6f6f6;
-		padding: 0.75rem;
+		margin: 1rem 0 0;
+		padding: 0.9rem;
 		overflow-x: auto;
+		background: var(--bg);
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		font-size: 11.5px;
+	}
+
+	/* small screens (last, so it wins over the rules above): details become a bottom drawer, rows drop the context column */
+	@media (width <= 52rem) {
+		.layout:has(aside) {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		aside {
+			position: fixed;
+			inset: auto 0 0;
+			z-index: 10;
+			max-height: 75dvh;
+			overflow-y: auto;
+			padding-top: 0;
+			border-radius: 12px 12px 0 0;
+			box-shadow: 0 -12px 40px #00000026;
+			animation: drawer 0.2s var(--curve);
+		}
+		aside nav {
+			position: sticky;
+			top: 0;
+			padding-top: 1rem;
+			background: var(--card);
+		}
+		li button {
+			grid-template-columns: minmax(0, 1fr) auto;
+		}
+		.ctx {
+			display: none;
+		}
+	}
+	@keyframes drawer {
+		from {
+			transform: translateY(100%);
+		}
 	}
 </style>

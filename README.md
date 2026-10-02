@@ -1,56 +1,22 @@
-# sv
+# sveltekit3-models-test
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Browse every [Vercel AI Gateway](https://vercel.com/ai-gateway) model. A tiny demo of
+[SvelteKit 3](https://svelte.dev/blog/sveltekit-3-is-here)'s two experimental features:
 
-## Creating a project
+- **[Remote functions](https://svelte.dev/docs/kit/remote-functions)**: `query()`s in
+  [`models.remote.ts`](src/routes/models.remote.ts) run on the server but are called like local
+  functions, with validated arguments and typed results.
+- **[Async Svelte](https://svelte.dev/docs/svelte/await-expressions)**: [`+page.svelte`](src/routes/+page.svelte)
+  just `await`s them in markup. SSR resolves everything up front; afterwards, old results stay on
+  screen until new ones are ready.
 
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project
-npx sv create my-app
-```
-
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-pnpm dlx sv@1.0.1 create --template demo --types ts --add enhanced-img --install pnpm my-new-app
-```
-
-## Adding features
-
-Add features to your project with `sv add`:
+Search, provider, and the selected model live in the URL, so any view is a shareable link.
+Results load 20 at a time.
 
 ```sh
-npx sv add
+pnpm install
+pnpm dev
 ```
 
-For example, to add Tailwind CSS:
-
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+No API key needed: the [model catalog](https://ai-gateway.vercel.sh/v1/models) is public. Both
+features are switched on in [`vite.config.ts`](vite.config.ts), where SvelteKit 3 config now lives.

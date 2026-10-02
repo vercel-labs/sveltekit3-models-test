@@ -1,74 +1,81 @@
+/**
+ * Remote functions: this file only ever runs on the server, but components
+ * import and call these like plain async functions. SvelteKit turns each
+ * call into a typed, validated fetch — and inlines the result during SSR.
+ */
 import { query } from '$app/server';
 import { error } from '@sveltejs/kit';
 import * as v from 'valibot';
 
-const GATEWAY = 'https://ai-gateway.vercel.sh/v1/models';
+const PAGE_SIZE = 20;
 
-export type Model = {
+type Model = {
 	id: string;
 	name: string;
 	description: string;
 	owned_by: string;
 	type: string;
+	released?: number;
 	context_window?: number;
 	max_tokens?: number;
 	tags?: string[];
 	pricing?: { input?: string; output?: string };
-	released?: number;
 };
 
-// Shared, cached fetch of the public AI Gateway catalog (no API key needed)
-let cache: { at: number; data: Model[] } | undefined;
+/** The public AI Gateway catalog (no key needed), memoized for 5 minutes. */
+let cache: Promise<Model[]> | undefined;
+let cachedAt = 0;
 
-async function catalog(): Promise<Model[]> {
-	if (cache && Date.now() - cache.at < 5 * 60_000) return cache.data;
-	const res = await fetch(GATEWAY);
-	if (!res.ok) error(502, `AI Gateway responded ${res.status}`);
-	const { data } = (await res.json()) as { data: Model[] };
-	cache = { at: Date.now(), data };
-	return data;
+function catalog() {
+	if (!cache || Date.now() - cachedAt > 300_000) {
+		cachedAt = Date.now();
+		cache = fetch('https://ai-gateway.vercel.sh/v1/models')
+			.then((r) => (r.ok ? r.json() : error(502, `AI Gateway said ${r.status}`)))
+			.then((r: { data: Model[] }) => r.data.sort((a, b) => (b.released ?? 0) - (a.released ?? 0)));
+		cache.catch(() => (cache = undefined)); // don't memoize failures
+	}
+	return cache;
 }
 
-/** All providers, with model counts */
+/** Providers, busiest first. */
 export const getProviders = query(async () => {
-	const counts = new Map<string, number>();
-	for (const m of await catalog()) counts.set(m.owned_by, (counts.get(m.owned_by) ?? 0) + 1);
-	return [...counts].map(([id, count]) => ({ id, count })).sort((a, b) => b.count - a.count);
+	const counts = Object.groupBy(await catalog(), (m) => m.owned_by);
+	return Object.entries(counts)
+		.map(([id, models]) => ({ id, count: models!.length }))
+		.sort((a, b) => b.count - a.count);
 });
 
-/** Filtered model list — the argument is validated on the server */
+/**
+ * One page of matching models. The schema is checked on the server before
+ * this runs, so `page` really is a non-negative integer.
+ */
 export const getModels = query(
 	v.object({
-		q: v.optional(v.pipe(v.string(), v.maxLength(100)), ''),
-		provider: v.optional(v.pipe(v.string(), v.maxLength(50)), '')
+		q: v.pipe(v.string(), v.maxLength(100)),
+		provider: v.pipe(v.string(), v.maxLength(50)),
+		page: v.pipe(v.number(), v.integer(), v.minValue(0))
 	}),
-	async ({ q, provider }) => {
+	async ({ q, provider, page }) => {
 		const needle = q.trim().toLowerCase();
-		return (await catalog())
-			.filter((m) => !provider || m.owned_by === provider)
-			.filter(
-				(m) =>
-					!needle ||
-					m.id.toLowerCase().includes(needle) ||
-					m.name.toLowerCase().includes(needle) ||
-					m.tags?.some((t) => t.includes(needle))
-			)
-			.sort((a, b) => (b.released ?? 0) - (a.released ?? 0))
-			.map(({ id, name, owned_by, type, context_window, pricing, tags }) => ({
-				id,
-				name,
-				owned_by,
-				type,
-				context_window,
-				pricing,
-				tags
-			}));
+		const matches = (await catalog()).filter(
+			(m) =>
+				(!provider || m.owned_by === provider) &&
+				(!needle || [m.id, m.name, ...(m.tags ?? [])].some((s) => s.toLowerCase().includes(needle)))
+		);
+		const start = page * PAGE_SIZE;
+
+		return {
+			total: matches.length,
+			more: start + PAGE_SIZE < matches.length,
+			// send only what the list shows — details come from getModel
+			models: matches
+				.slice(start, start + PAGE_SIZE)
+				.map(({ id, name, context_window, pricing }) => ({ id, name, context_window, pricing }))
+		};
 	}
 );
 
-/** Full details for one model */
+/** Everything about one model. */
 export const getModel = query(v.pipe(v.string(), v.maxLength(100)), async (id) => {
-	const model = (await catalog()).find((m) => m.id === id);
-	if (!model) error(404, `Unknown model ${id}`);
-	return model;
+	return (await catalog()).find((m) => m.id === id) ?? error(404, `No model called ${id}`);
 });
