@@ -67,10 +67,14 @@
 />
 
 <header>
-	<h1>
-		ai gateway models<Beacon id="server" />
-		<button class="tour" onclick={() => next()}>how it works →</button>
-	</h1>
+	<div class="top">
+		<h1>ai gateway models<Beacon id="server" /></h1>
+		<nav>
+			<a href="https://github.com/vercel-labs/sveltekit3-models-test">source code</a>
+			/
+			<button onclick={() => next()}>how it works</button>
+		</nav>
+	</div>
 	<p>
 		Every model on <a href="https://vercel.com/ai-gateway">Vercel AI Gateway</a>, served by
 		SvelteKit 3 <a href="https://svelte.dev/docs/kit/remote-functions">remote functions</a> and
@@ -194,18 +198,28 @@ await generateText({
 		font-weight: 600;
 		margin: 0;
 	}
-	.tour {
-		margin-left: auto;
+	.top {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.25rem 1rem;
+	}
+	.top nav {
+		color: var(--dim);
+	}
+	.top nav a,
+	.top nav button {
 		padding: 0;
 		background: none;
 		border: 0;
-		color: var(--dim);
-		font-size: 13px;
-		font-weight: 400;
+		color: inherit;
+		text-decoration: none;
 		cursor: pointer;
 		transition: color var(--ease);
 	}
-	.tour:hover {
+	.top nav a:hover,
+	.top nav button:hover {
 		color: var(--red);
 	}
 	header p {
@@ -449,6 +463,16 @@ await generateText({
 	@keyframes drawer {
 		from {
 			transform: translateY(100%);
+		}
+	}
+
+	/* phones: search and provider each get a full row */
+	@media (width <= 36rem) {
+		.filters {
+			flex-direction: column;
+		}
+		.field:last-child {
+			max-width: none;
 		}
 	}
 </style>
