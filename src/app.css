@@ -7,6 +7,7 @@
 	--line: #e5e5e5;
 	--red: #ff3e00;
 	--red-soft: #ff3e0014;
+	--chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23767676' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 	--curve: cubic-bezier(0.4, 0, 0.2, 1);
 	--ease: 0.15s var(--curve); /* for `transition: <prop> var(--ease)`; animations use --curve */
 	color-scheme: light dark;
@@ -20,6 +21,7 @@
 		--card: #0a0a0a;
 		--line: #262626;
 		--red-soft: #ff3e001f;
+		--chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a8a8a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 	}
 }
 

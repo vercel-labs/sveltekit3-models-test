@@ -260,6 +260,16 @@ await generateText({
 		flex: 1;
 		min-width: 0;
 	}
+	/* our own chevron, inset from the edge (the native one hugs the border) */
+	select {
+		appearance: none;
+		padding-right: 2.25rem;
+		background-image: var(--chevron);
+		background-repeat: no-repeat;
+		background-position: right 0.9rem center;
+		background-size: 10px 6px;
+		text-overflow: ellipsis;
+	}
 	input:focus,
 	select:focus {
 		border-color: var(--red);
